@@ -41,34 +41,37 @@ generic (
 port (
 	mclock : in	std_logic;
 	reset : in	std_logic;
-	tx : out	std_logic := '1';
-	tx_clock : buffer std_logic;
+	tx : out	std_logic;
+	rx : in std_logic;
+	uart_clock : buffer std_logic;
 	tx_request : in std_logic;
 	tx_busy : out std_logic := '0';
 	tx_data : in std_logic_vector(7 downto 0);
-	rx_data : out std_logic_vector(7 downto 0)
+	rx_data : out std_logic_vector(7 downto 0);
+	rx_ready	: out std_logic
 );
 end UARTController;
 
 architecture Behavioral of UARTController is
 	
 	type state is (idle, data, parity, stop);
-	constant UART_IDLE	:	std_logic := '1';
-	constant UART_START	:	std_logic := '0';
+	constant UART_IDLE : std_logic := '1';
+	constant UART_START : std_logic := '0';
  
-	signal tx_fsm : state := idle;
+	signal tx_fsm, rx_fsm : state := idle;
+	signal rx_data_debouncer : std_logic;
 	
 begin
 	
-	send_clock : process(mclock, reset)
+	uart_clock_generator : process(mclock, reset)
 		variable counter : integer range 1 to conv_integer(CLOCK_FREQ / SERIAL_FREQ / 2);
 	begin
 		if reset = '1' then
-			tx_clock <= '0';
+			uart_clock <= '0';
 			counter := 1;
-		elsif mclock'event and mclock = '1' then
+		elsif rising_edge(mclock) then
 			if counter = (CLOCK_FREQ / SERIAL_FREQ / 2) then
-				tx_clock	<=	not(tx_clock);
+				uart_clock	<=	not(uart_clock);
 				counter := 1;
 			else
 				counter := counter + 1;
@@ -76,7 +79,7 @@ begin
 		end if;
 	end process;
  
-	send : process(tx_clock, reset)
+	send : process(uart_clock, reset)
 		variable parity_bit : std_logic;
 		variable data_tmp : std_logic_vector(7 downto 0);
 		variable data_count : integer;
@@ -90,7 +93,7 @@ begin
 			tx <= UART_IDLE;
 			tx_busy <= '0';
 			stop_bits_count := 0;
-		elsif tx_clock'event and tx_clock = '1' then
+		elsif rising_edge(uart_clock) then
 			case tx_fsm is
 				when idle =>
 					if tx_request = '1' then
@@ -123,6 +126,68 @@ begin
 					if stop_bits_count = STOP_BITS_COUNT then
 						tx_fsm <= idle;
 						tx_busy <= '0';
+					end if;
+				when others => null;
+			end case;
+		end if;
+	end process;
+	
+	receive_debounceer : process(mclock)
+		variable debounce_buffer : std_logic_vector(7 downto 0);
+	begin
+		if mclock'event and mclock = '1' then
+			if debounce_buffer = "00000000" then
+				rx_data_debouncer <=	'0';
+			elsif debounce_buffer = "11111111" then
+				rx_data_debouncer	<=	'1';
+			end if;
+			debounce_buffer := debounce_buffer(6 downto 0) & rx;
+		end if;
+	end process;
+	
+	receive : process(uart_clock, reset)
+		variable parity_bit : std_logic;
+		variable data_tmp : std_logic_vector(7 downto 0);
+		variable data_count : integer;
+		variable stop_bits_count : integer;
+	begin
+		if reset = '1' then
+			rx_fsm <= idle;
+			rx_ready	<=	'0';
+			rx_data <= (others => '0');
+			data_tmp	:=	(others => '0');
+			data_count := 0;
+		elsif rising_edge(uart_clock) then
+			rx_ready	<= '0';
+			case rx_fsm is
+				when idle =>
+					if rx_data_debouncer = UART_START then
+						rx_fsm <= data;
+					end if;
+					parity_bit := '0';
+					data_count := 0;
+				when data =>
+					if PARITY_ENABLED = '1' then
+						parity_bit := parity_bit xor rx;
+					end if;
+					
+					data_tmp(data_count) := rx;
+					data_count := data_count + 1;
+
+					if data_count = 8 then
+						rx_data <= data_tmp;
+						
+						if PARITY_ENABLED = '1' then
+							rx_fsm <= parity;
+						else
+							rx_ready <= '1';
+							rx_fsm <= idle;
+						end if;
+					end if;
+				when parity =>
+					rx_fsm <= idle;
+					if parity_bit = rx then
+						rx_ready <=	'1';
 					end if;
 				when others => null;
 			end case;

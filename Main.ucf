@@ -3,7 +3,8 @@
 
 NET "mclock" LOC = C9;
 NET "reset" LOC = K17 | IOSTANDARD = LVTTL | PULLDOWN;
-NET "tx" LOC = M14 | IOSTANDARD = LVTTL | DRIVE = 8 | SLEW = SLOW ;
+NET "tx" LOC = M14 | IOSTANDARD = LVTTL | DRIVE = 8 | SLEW = SLOW;
+NET "rx" LOC = R7 | IOSTANDARD = LVTTL;
 
 NET "leds[0]" LOC = F12;
 NET "leds[1]" LOC = E12;

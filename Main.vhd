@@ -34,17 +34,19 @@ port(
 	mclock : in std_logic;
 	reset : in std_logic;
 	tx : out	std_logic;
+	rx : in std_logic;
 	leds : out std_logic_vector(7 downto 0)
 );
 end Main;
 
 architecture Behavioral of Main is
 	
-	signal tx_clock : std_logic;
+	signal uart_clock : std_logic;
 	signal tx_request : std_logic;
 	signal tx_data : std_logic_vector(7 downto 0);
 	signal rx_data : std_logic_vector(7 downto 0);
 	signal tx_busy : std_logic;
+	signal rx_ready : std_logic;
 	
 begin
 	
@@ -59,23 +61,23 @@ begin
 		mclock => mclock,
 		reset => reset,
 		tx => tx,
-		tx_clock => tx_clock,
+		rx => rx,
+		uart_clock => uart_clock,
 		tx_request => tx_request,
 		tx_data => tx_data,
 		rx_data => rx_data,
-		tx_busy => tx_busy
+		tx_busy => tx_busy,
+		rx_ready => rx_ready
 	);
 	
-	leds <= rx_data;
-	
-	send_str : process(reset, tx_clock, tx_busy)
+	send_str : process(reset, uart_clock, tx_busy)
 		variable sent : integer := 0;
 		variable message : string(1 to 19) := "This is Spartan 3E!";
 	begin
 		if reset = '1' then
 			sent := 0;
 			tx_request <= '0';
-		elsif tx_clock'event and tx_clock = '1' then
+		elsif uart_clock'event and uart_clock = '1' then
 			if tx_busy = '0' and tx_request = '0' and sent < message'length then
 				sent := sent + 1;
 				tx_data <= conv_std_logic_vector(character'pos(message(sent)), 8);
@@ -83,6 +85,15 @@ begin
 			else
 				tx_request <= '0';
 			end if;
+		end if;
+	end process;
+	
+	receive_str : process(reset, uart_clock, rx_ready, rx_data)
+	begin
+		if reset = '1' then
+			leds <= "00000000";
+		elsif rising_edge(rx_ready) then
+			leds <= rx_data;
 		end if;
 	end process;
 	
